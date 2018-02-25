@@ -1,0 +1,38 @@
+package spark_elasticsearch.SparkES
+
+import org.apache.spark.streaming.Duration
+import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
+import org.apache.spark.streaming.StreamingContext
+import org.apache.spark.streaming.StreamingContext._
+import org.apache.spark.SparkConf
+import org.apache.spark.streaming.Duration
+
+import org.apache.spark.streaming.kafka.KafkaUtils
+
+object KafkaWordCount {
+  def main(args: Array[String]) {
+    if (args.length < 4) {
+      System.err.println("Usage: KafkaWordCount <zkQuorum> <group> <topics> <numThreads>")
+      System.exit(1)
+    }
+
+
+    val Array(zkQuorum, group, topics, numThreads) = args
+    val sparkConf = new SparkConf().setAppName("KafkaWordCount").setMaster("local[*]")
+    val ssc =  new StreamingContext(sparkConf, new Duration(5 * 1000))
+    ssc.checkpoint("/tmp/checkpoint")
+
+    val topicMap = topics.split(",").map((_,numThreads.toInt)).toMap
+    val lines = KafkaUtils.createStream(ssc, zkQuorum, group, topicMap).map(_._2)
+
+    val words = lines.flatMap(_.split(" "))
+    words.print()
+    val wordCounts = words.map(x => (x, 1L))
+      .reduceByKeyAndWindow(_ + _, _ - _, new Duration(150 * 1000), new Duration(10 * 1000), 2)
+    wordCounts.print()
+
+    ssc.start()
+    ssc.awaitTermination()
+  }
+}
